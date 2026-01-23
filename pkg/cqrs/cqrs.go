@@ -3,7 +3,9 @@ package cqrs
 import (
 	"context"
 	"fmt"
+	"sync"
 
+	"github.com/google/uuid"
 	"github.com/yourusername/go-generic-event-driven/pkg/ddd"
 )
 
@@ -17,6 +19,7 @@ type Command struct {
 
 func NewCommand(commandType, aggregateID string, data interface{}) *Command {
 	return &Command{
+		ID:          uuid.New().String(),
 		Type:        commandType,
 		AggregateID: aggregateID,
 		Data:        data,
@@ -37,6 +40,7 @@ type Query struct {
 
 func NewQuery(queryType string, data interface{}) *Query {
 	return &Query{
+		ID:   uuid.New().String(),
 		Type: queryType,
 		Data: data,
 	}
@@ -89,6 +93,7 @@ type EventHandler interface {
 // InMemoryCommandBus implements an in-memory command bus
 type InMemoryCommandBus struct {
 	handlers map[string]CommandHandler
+	mu       sync.RWMutex
 }
 
 func NewInMemoryCommandBus() *InMemoryCommandBus {
@@ -98,6 +103,8 @@ func NewInMemoryCommandBus() *InMemoryCommandBus {
 }
 
 func (bus *InMemoryCommandBus) Register(commandType string, handler CommandHandler) error {
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
 	if _, exists := bus.handlers[commandType]; exists {
 		return fmt.Errorf("command handler for type %s already registered", commandType)
 	}
@@ -106,7 +113,9 @@ func (bus *InMemoryCommandBus) Register(commandType string, handler CommandHandl
 }
 
 func (bus *InMemoryCommandBus) Dispatch(ctx context.Context, cmd *Command) (*CommandResult, error) {
+	bus.mu.RLock()
 	handler, exists := bus.handlers[cmd.Type]
+	bus.mu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for command type: %s", cmd.Type)
 	}
@@ -117,6 +126,7 @@ func (bus *InMemoryCommandBus) Dispatch(ctx context.Context, cmd *Command) (*Com
 // InMemoryQueryBus implements an in-memory query bus
 type InMemoryQueryBus struct {
 	handlers map[string]QueryHandler
+	mu       sync.RWMutex
 }
 
 func NewInMemoryQueryBus() *InMemoryQueryBus {
@@ -126,6 +136,8 @@ func NewInMemoryQueryBus() *InMemoryQueryBus {
 }
 
 func (bus *InMemoryQueryBus) Register(queryType string, handler QueryHandler) error {
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
 	if _, exists := bus.handlers[queryType]; exists {
 		return fmt.Errorf("query handler for type %s already registered", queryType)
 	}
@@ -134,7 +146,9 @@ func (bus *InMemoryQueryBus) Register(queryType string, handler QueryHandler) er
 }
 
 func (bus *InMemoryQueryBus) Dispatch(ctx context.Context, query *Query) (interface{}, error) {
+	bus.mu.RLock()
 	handler, exists := bus.handlers[query.Type]
+	bus.mu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("no handler registered for query type: %s", query.Type)
 	}
@@ -145,6 +159,7 @@ func (bus *InMemoryQueryBus) Dispatch(ctx context.Context, query *Query) (interf
 // InMemoryEventBus implements an in-memory event bus
 type InMemoryEventBus struct {
 	handlers map[string][]EventHandler
+	mu       sync.RWMutex
 }
 
 func NewInMemoryEventBus() *InMemoryEventBus {
@@ -154,6 +169,8 @@ func NewInMemoryEventBus() *InMemoryEventBus {
 }
 
 func (bus *InMemoryEventBus) Subscribe(eventType string, handler EventHandler) error {
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
 	if _, exists := bus.handlers[eventType]; !exists {
 		bus.handlers[eventType] = make([]EventHandler, 0)
 	}
@@ -162,12 +179,14 @@ func (bus *InMemoryEventBus) Subscribe(eventType string, handler EventHandler) e
 }
 
 func (bus *InMemoryEventBus) Publish(ctx context.Context, event ddd.Event) error {
+	bus.mu.RLock()
 	handlers, exists := bus.handlers[event.GetType()]
+	bus.mu.RUnlock()
 	if !exists {
 		return nil // No handlers for this event type
 	}
 
-	for _, handler := range handlers {
+	for _, handler := range append([]EventHandler(nil), handlers...) {
 		if err := handler.Handle(ctx, event); err != nil {
 			return fmt.Errorf("event handler failed for event %s: %w", event.GetType(), err)
 		}

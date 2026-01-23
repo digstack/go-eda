@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/yourusername/go-generic-event-driven/pkg/ddd"
@@ -21,7 +23,7 @@ type NATSConnection struct {
 
 func NewNATSConnection(url string) (*NATSConnection, error) {
 	nc, err := nats.Connect(url,
-		nats.ReconnectWait(2),
+		nats.ReconnectWait(2*time.Second),
 		nats.MaxReconnects(10),
 		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
 			fmt.Printf("NATS disconnected: %v\n", err)
@@ -72,6 +74,16 @@ type NATSEventStore struct {
 func NewNATSEventStore(conn *nats.Conn, serializer ddd.EventSerializer) *NATSEventStore {
 	js, _ := conn.JetStream()
 
+	if js != nil {
+		_, err := js.StreamInfo("EVENTS")
+		if err != nil {
+			_, _ = js.AddStream(&nats.StreamConfig{
+				Name:     "EVENTS",
+				Subjects: []string{"EVENTS.*"},
+			})
+		}
+	}
+
 	return &NATSEventStore{
 		conn:   conn,
 		js:     js,
@@ -85,6 +97,19 @@ func (s *NATSEventStore) SaveEvents(ctx context.Context, aggregateID string, eve
 		return fmt.Errorf("JetStream not available")
 	}
 
+	currentVersion, lastSubjectSeq, err := s.getAggregateState(aggregateID)
+	if err != nil {
+		return fmt.Errorf("failed to get aggregate state: %w", err)
+	}
+	if expectedVersion >= 0 && expectedVersion != currentVersion {
+		if lastSubjectSeq > 0 && currentVersion == 0 {
+			return fmt.Errorf("missing aggregate version header for %s", aggregateID)
+		}
+		return fmt.Errorf("unexpected version: expected %d, got %d", expectedVersion, currentVersion)
+	}
+
+	nextVersion := currentVersion + 1
+	expectedSubjSeq := lastSubjectSeq
 	for _, event := range events {
 		data, err := s.ser.Serialize(event.Event)
 		if err != nil {
@@ -93,9 +118,30 @@ func (s *NATSEventStore) SaveEvents(ctx context.Context, aggregateID string, eve
 
 		subject := fmt.Sprintf("%s.%s", s.stream, aggregateID)
 
-		_, err = s.js.Publish(subject, data)
+		msg := &nats.Msg{
+			Subject: subject,
+			Data:    data,
+			Header:  nats.Header{},
+		}
+		msg.Header.Set("Event-Type", event.Event.GetType())
+		msg.Header.Set("Aggregate-ID", aggregateID)
+		msg.Header.Set("Aggregate-Version", strconv.Itoa(nextVersion))
+		nextVersion++
+
+		var opts []nats.PubOpt
+		if eventID := event.Event.GetID(); eventID != "" {
+			opts = append(opts, nats.MsgId(eventID))
+		}
+		if expectedVersion >= 0 && expectedSubjSeq > 0 {
+			opts = append(opts, nats.ExpectLastSequencePerSubject(expectedSubjSeq))
+		}
+
+		pa, err := s.js.PublishMsg(msg, opts...)
 		if err != nil {
 			return fmt.Errorf("failed to publish event to NATS: %w", err)
+		}
+		if expectedVersion >= 0 && pa != nil {
+			expectedSubjSeq = pa.Sequence
 		}
 	}
 
@@ -113,7 +159,8 @@ func (s *NATSEventStore) GetEventsFromVersion(ctx context.Context, aggregateID s
 
 	subject := fmt.Sprintf("%s.%s", s.stream, aggregateID)
 
-	sub, err := s.js.SubscribeSync(subject)
+	startSeq := uint64(fromVersion + 1)
+	sub, err := s.js.PullSubscribe(subject, "", nats.BindStream(s.stream), nats.StartSequence(startSeq), nats.AckNone())
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to events: %w", err)
 	}
@@ -121,33 +168,41 @@ func (s *NATSEventStore) GetEventsFromVersion(ctx context.Context, aggregateID s
 
 	var events []ddd.EventWithMetadata
 
+	seen := 0
 	for {
-		msg, err := sub.NextMsg(0)
+		msgs, err := sub.Fetch(50, nats.MaxWait(200*time.Millisecond))
 		if err != nil {
 			if err == nats.ErrTimeout {
 				break
 			}
-			return nil, fmt.Errorf("failed to get next message: %w", err)
+			return nil, fmt.Errorf("failed to fetch messages: %w", err)
 		}
+		for _, msg := range msgs {
+			eventType := msg.Header.Get("Event-Type")
+			if eventType == "" {
+				continue
+			}
 
-		eventType := msg.Header.Get("Event-Type")
-		if eventType == "" {
-			continue
+			version := parseVersionHeader(msg.Header.Get("Aggregate-Version"), seen+1)
+			seen++
+			if version <= fromVersion {
+				continue
+			}
+
+			event, err := s.ser.Deserialize(eventType, msg.Data)
+			if err != nil {
+				return nil, fmt.Errorf("failed to deserialize event: %w", err)
+			}
+
+			eventWithMetadata := ddd.EventWithMetadata{
+				Event:       event,
+				AggregateID: aggregateID,
+				Version:     version,
+				Metadata:    make(map[string]interface{}),
+			}
+
+			events = append(events, eventWithMetadata)
 		}
-
-		event, err := s.ser.Deserialize(eventType, msg.Data)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize event: %w", err)
-		}
-
-		eventWithMetadata := ddd.EventWithMetadata{
-			Event:       event,
-			AggregateID: aggregateID,
-			Version:     fromVersion + len(events) + 1,
-			Metadata:    make(map[string]interface{}),
-		}
-
-		events = append(events, eventWithMetadata)
 	}
 
 	return events, nil
@@ -158,45 +213,47 @@ func (s *NATSEventStore) GetAllEvents(ctx context.Context) ([]ddd.EventWithMetad
 		return nil, fmt.Errorf("JetStream not available")
 	}
 
-	streamInfo, err := s.js.StreamInfo(s.stream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stream info: %w", err)
-	}
-
 	var allEvents []ddd.EventWithMetadata
 
-	consumerSub, err := s.js.PullSubscribe(s.stream+".CONSUMER", "all-events-consumer")
+	consumerSub, err := s.js.PullSubscribe(s.stream+".*", "", nats.BindStream(s.stream), nats.StartSequence(1), nats.AckNone())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pull consumer: %w", err)
 	}
 	defer consumerSub.Unsubscribe()
 
-	for i := uint64(0); i < streamInfo.State.Msgs; i++ {
-		msg, err := consumerSub.NextMsg(0)
+	seen := 0
+	for {
+		msgs, err := consumerSub.Fetch(100, nats.MaxWait(200*time.Millisecond))
 		if err != nil {
 			if err == nats.ErrTimeout {
 				break
 			}
-			return nil, fmt.Errorf("failed to get message %d: %w", i, err)
+			return nil, fmt.Errorf("failed to fetch messages: %w", err)
 		}
+		for _, msg := range msgs {
+			eventType := msg.Header.Get("Event-Type")
+			if eventType == "" {
+				continue
+			}
 
-		eventType := msg.Header.Get("Event-Type")
-		if eventType == "" {
-			continue
+			event, err := s.ser.Deserialize(eventType, msg.Data)
+			if err != nil {
+				return nil, fmt.Errorf("failed to deserialize event: %w", err)
+			}
+
+			aggID := msg.Header.Get("Aggregate-ID")
+			version := parseVersionHeader(msg.Header.Get("Aggregate-Version"), seen+1)
+			seen++
+
+			eventWithMetadata := ddd.EventWithMetadata{
+				Event:       event,
+				AggregateID: aggID,
+				Version:     version,
+				Metadata:    make(map[string]interface{}),
+			}
+
+			allEvents = append(allEvents, eventWithMetadata)
 		}
-
-		event, err := s.ser.Deserialize(eventType, msg.Data)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize event: %w", err)
-		}
-
-		eventWithMetadata := ddd.EventWithMetadata{
-			Event:    event,
-			Metadata: make(map[string]interface{}),
-		}
-
-		allEvents = append(allEvents, eventWithMetadata)
-		msg.Ack()
 	}
 
 	return allEvents, nil
@@ -216,6 +273,20 @@ func NewInMemoryEventStore() *InMemoryEventStore {
 func (s *InMemoryEventStore) SaveEvents(ctx context.Context, aggregateID string, events []ddd.EventWithMetadata, expectedVersion int) error {
 	if _, exists := s.events[aggregateID]; !exists {
 		s.events[aggregateID] = make([]ddd.EventWithMetadata, 0)
+	}
+
+	currentVersion := len(s.events[aggregateID])
+	if expectedVersion >= 0 && expectedVersion != currentVersion {
+		return fmt.Errorf("unexpected version: expected %d, got %d", expectedVersion, currentVersion)
+	}
+
+	nextVersion := currentVersion + 1
+	for i := range events {
+		events[i].AggregateID = aggregateID
+		if events[i].Version == 0 {
+			events[i].Version = nextVersion
+		}
+		nextVersion++
 	}
 
 	s.events[aggregateID] = append(s.events[aggregateID], events...)
@@ -248,4 +319,28 @@ func (s *InMemoryEventStore) GetAllEvents(ctx context.Context) ([]ddd.EventWithM
 		allEvents = append(allEvents, events...)
 	}
 	return allEvents, nil
+}
+
+func (s *NATSEventStore) getAggregateState(aggregateID string) (int, uint64, error) {
+	subject := fmt.Sprintf("%s.%s", s.stream, aggregateID)
+	msg, err := s.js.GetLastMsg(s.stream, subject)
+	if err != nil {
+		if err == nats.ErrMsgNotFound {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	version := parseVersionHeader(msg.Header.Get("Aggregate-Version"), 0)
+	return version, msg.Sequence, nil
+}
+
+func parseVersionHeader(value string, fallback int) int {
+	if value == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
