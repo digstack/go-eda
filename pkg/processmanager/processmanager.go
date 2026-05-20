@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/yourusername/go-generic-event-driven/pkg/ddd"
+	"github.com/codesyl/go-eda/pkg/ddd"
 )
 
 // Effect is something a handler asks the engine to do after a successful

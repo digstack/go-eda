@@ -10,22 +10,24 @@ The same building blocks (typed event store, OCC, idempotent publish, typed CQRS
 
 ```
 pkg/
-├── ddd/        # generic Aggregate[ID], EventEnvelope[ID], Clock, payload contract
-├── db/         # event stores: JetStreamStore[ID] (NATS v2), InMemoryStore[ID]; SnapshotStore
-├── cqrs/       # typed CommandHandler[C,R] / QueryHandler[Q,R], middleware chain, TypedEventBus
-├── di/         # type-safe Registry: Provide[T] / Resolve[T], scopes, lifecycle hooks
-├── obs/        # slog logger, Meter/Tracer interfaces, cqrs middlewares (logging/metrics/tracing)
-├── outbox/     # transactional outbox pattern: Store interface + Relay + in-mem impl
-├── projection/ # event-store projections: Projector + Manager (catch-up + live + checkpoint)
-├── processmanager/ # event-driven process manager (state machine + OCC + idempotency)
-├── logger/     # Logger interface + slog adapter
-├── module/     # legacy module registry (string-keyed, kept for compatibility)
-└── types/      # legacy generic payload structs (kept for compatibility)
+├── ddd/                # generic Aggregate[ID], EventEnvelope[ID], Clock, payload contract
+├── db/                 # JetStreamStore[ID] (NATS v2) + InMemoryStore[ID] + SnapshotStore
+├── cqrs/               # typed CommandHandler[C,R] / QueryHandler[Q,R], middleware chain, TypedEventBus
+├── di/                 # type-safe Registry: Provide[T] / Resolve[T], scopes, lifecycle hooks
+├── obs/
+│   ├── (root)          # Meter / Tracer interfaces + cqrs middlewares (logging/metrics/tracing)
+│   ├── prom/           # opt-in Prometheus Meter
+│   └── otelobs/        # opt-in OpenTelemetry Tracer
+├── outbox/             # transactional outbox: Store interface + Relay + in-mem impl
+├── projection/         # event-store projections: Projector + Manager + Checkpoints (mem + NATS KV)
+├── processmanager/     # event-driven process manager: Definition + Engine + State (mem + NATS KV)
+└── logger/             # Logger interface + slog adapter + Nop
 examples/
-└── banking/    # runnable example exercising every modern layer
+├── banking/            # DI + DDD + EventStore + CQRS + obs
+└── orders/             # everything above + outbox + projection + process manager
 ```
 
-The `pkg/cqrs`, `pkg/ddd` and `pkg/di` packages contain both a **legacy** API (string-keyed, `interface{}`) and a **typed** API (generics). The typed API is the recommended one; the legacy one is preserved while consumers migrate.
+Module path: `github.com/codesyl/go-eda`.
 
 ## Quick start
 
@@ -110,9 +112,12 @@ A generic, idempotent state machine: declare a `Definition[ID,S]` with an `Insta
 
 ### Observability (pkg/obs)
 
-- `Meter` / `Tracer` interfaces with `Nop*` defaults — plug Prometheus or OpenTelemetry adapters when ready
-- ready-made middlewares for the typed CQRS dispatch path
-- `logger.SlogLogger` bridges `*slog.Logger` to the boilerplate `Logger` interface
+- `Meter` / `Tracer` interfaces with `Nop*` defaults — the core stays dependency-free.
+- Opt-in adapters:
+  - `pkg/obs/prom` — Prometheus `Meter` (pulls in `prometheus/client_golang`)
+  - `pkg/obs/otelobs` — OpenTelemetry `Tracer` (pulls in `go.opentelemetry.io/otel`)
+- Ready-made middlewares for the typed CQRS dispatch path: `LoggingMiddleware`, `MetricsMiddleware`, `TracingMiddleware`.
+- `logger.SlogLogger` bridges `*slog.Logger` to the boilerplate `Logger` interface.
 
 ## Tests
 
@@ -120,7 +125,14 @@ A generic, idempotent state machine: declare a `Definition[ID,S]` with an `Insta
 go test -race ./...
 ```
 
-The JetStream-backed store has its own integration test that requires a local NATS instance (skipped by default; see `pkg/db`).
+Integration tests against a real NATS server live behind the `integration` build tag. Spin up NATS with JetStream and run:
+
+```bash
+docker run --rm -p 4222:4222 nats:2.10 -js
+go test -tags=integration ./...
+```
+
+These cover `JetStreamStore`, `KVCheckpointStore` and `KVStateStore`; they auto-skip if no NATS is reachable.
 
 ## Status
 

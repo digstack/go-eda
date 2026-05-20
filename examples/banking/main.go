@@ -15,12 +15,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/yourusername/go-generic-event-driven/pkg/cqrs"
-	"github.com/yourusername/go-generic-event-driven/pkg/db"
-	"github.com/yourusername/go-generic-event-driven/pkg/ddd"
-	"github.com/yourusername/go-generic-event-driven/pkg/di"
-	"github.com/yourusername/go-generic-event-driven/pkg/logger"
-	"github.com/yourusername/go-generic-event-driven/pkg/obs"
+	"github.com/codesyl/go-eda/pkg/cqrs"
+	"github.com/codesyl/go-eda/pkg/db"
+	"github.com/codesyl/go-eda/pkg/ddd"
+	"github.com/codesyl/go-eda/pkg/di"
+	"github.com/codesyl/go-eda/pkg/logger"
+	"github.com/codesyl/go-eda/pkg/obs"
 )
 
 // ----------------------------------------------------------------------------

@@ -33,7 +33,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/yourusername/go-generic-event-driven/pkg/ddd"
+	"github.com/codesyl/go-eda/pkg/ddd"
 )
 
 // Errors returned by the typed event store.

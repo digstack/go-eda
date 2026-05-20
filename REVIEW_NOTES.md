@@ -75,10 +75,25 @@ Tests (PR2): outbox (4), projection (4), processmanager (5). `go test -race ./..
 - [x] `pkg/projection/kv_checkpoint.go` — `KVCheckpointStore[ID]` basé sur `jetstream.KeyValue` (JSON encoding, History=1)
 - [x] `pkg/processmanager/kv_state.go` — `KVStateStore[S]` basé sur `jetstream.KeyValue` avec OCC via revision (`Create` / `Update` avec last-revision)
 
+## Suivi PR4 (integration tests + rename + adapters + legacy cleanup, 2026-05-20)
+
+- [x] Integration tests `//go:build integration` couvrant `JetStreamStore`, `KVCheckpointStore`, `KVStateStore`. Auto-skip si NATS pas accessible. README documente la commande Docker.
+- [x] Module path renommé: `github.com/yourusername/go-generic-event-driven` → `github.com/codesyl/go-eda`
+- [x] `pkg/obs/prom` — adapter Prometheus pour `Meter` (counters + histograms)
+- [x] `pkg/obs/otelobs` — adapter OpenTelemetry pour `Tracer`
+- [x] Suppression du legacy:
+  - `pkg/types/` (entier)
+  - `pkg/module/` (entier)
+  - `pkg/di/container.go` + `container_test.go` + `container_integration_test.go`
+  - `pkg/cqrs/cqrs.go` + `cqrs_test.go`
+  - `pkg/ddd/interfaces.go` + `base.go`
+  - `pkg/db/event_store.go` + `event_store_test.go` + `nats_event_store_integration_test.go`
+  - `pkg/logger/logger.go` (interface + helpers déplacés dans `slog.go`)
+  - `examples/simple_di_example.go`
+
 ## À faire (PRs suivantes)
 
-- [ ] Integration test JetStream v2 avec testcontainers (couvrira aussi `KVCheckpointStore` et `KVStateStore`)
-- [ ] Renommer le module path (`github.com/yourusername/...`) → cible publiable
-- [ ] Adapters concrets pour `Meter` (Prometheus) et `Tracer` (OpenTelemetry)
 - [ ] SQL implementation de `outbox.Store` (Postgres/MySQL avec `SELECT ... FOR UPDATE SKIP LOCKED`)
-- [ ] Supprimer le legacy après migration: `pkg/di/container.go`, `pkg/cqrs/cqrs.go` (legacy), `pkg/module`, `pkg/types`
+- [ ] Sous-modules Go séparés pour `pkg/obs/{prom,otelobs}` afin que le core reste sans deps optionnelles
+- [ ] CI sklp (`.sklp/tasks/ci.yaml`) — `go test -race ./...` + `go vet`
+- [ ] Exemple multi-tenant utilisant les Scopes du DI

@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yourusername/go-generic-event-driven/pkg/ddd"
+	"github.com/codesyl/go-eda/pkg/ddd"
 )
 
 // Typed domain errors. Wrap them with fmt.Errorf("%w: ...") to add context.

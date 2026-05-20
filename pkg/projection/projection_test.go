@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/yourusername/go-generic-event-driven/pkg/ddd"
+	"github.com/codesyl/go-eda/pkg/ddd"
 )
 
 type pinged struct{ N int }

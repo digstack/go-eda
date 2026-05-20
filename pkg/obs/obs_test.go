@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/yourusername/go-generic-event-driven/pkg/logger"
+	"github.com/codesyl/go-eda/pkg/logger"
 )
 
 type pingCmd struct{ N int }
