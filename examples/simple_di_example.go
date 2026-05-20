@@ -6,13 +6,30 @@ import (
 	"time"
 
 	"github.com/yourusername/go-generic-event-driven/pkg/cqrs"
+	"github.com/yourusername/go-generic-event-driven/pkg/db"
+	"github.com/yourusername/go-generic-event-driven/pkg/di"
 	"github.com/yourusername/go-generic-event-driven/pkg/ddd"
 	"github.com/yourusername/go-generic-event-driven/pkg/logger"
-	"github.com/yourusername/go-generic-event-driven/pkg/module"
 	"github.com/yourusername/go-generic-event-driven/pkg/types"
 )
 
-// Example: User aggregate using generic boilerplate
+// Application represents the main application structure
+type Application struct {
+	Logger     logger.Logger
+	CQRS       *cqrs.CQRS
+	EventStore db.EventStore
+}
+
+// NewApplication creates a new application instance
+func NewApplication(logger logger.Logger, cqrs *cqrs.CQRS, eventStore db.EventStore) *Application {
+	return &Application{
+		Logger:     logger,
+		CQRS:       cqrs,
+		EventStore: eventStore,
+	}
+}
+
+// Example: User aggregate using generic boilerplate with simple DI
 
 // User represents a user entity
 type User struct {
@@ -169,68 +186,50 @@ func (h *UserUpdatedEventHandler) Handle(ctx context.Context, event ddd.Event) e
 	return nil
 }
 
-// RegisterUserModule registers the user module with the application
-func RegisterUserModule(app *module.Application, users map[string]*User) error {
-	// Create module
-	userModule := module.NewModule("user")
-
-	// Register command handlers
-	createHandler := NewCreateUserHandler(users)
-	updateHandler := NewUpdateUserHandler(users)
-
-	if err := userModule.RegisterCommandHandler("CreateUser", createHandler); err != nil {
-		return err
-	}
-	if err := userModule.RegisterCommandHandler("UpdateUser", updateHandler); err != nil {
-		return err
-	}
-
-	// Register query handlers
-	getHandler := NewGetUserHandler(users)
-	if err := userModule.RegisterQueryHandler("GetUser", getHandler); err != nil {
-		return err
-	}
-
-	// Register event handlers
-	createdHandler := NewUserCreatedEventHandler()
-	updatedHandler := NewUserUpdatedEventHandler()
-
-	if err := userModule.RegisterEventHandler("UserCreated", createdHandler); err != nil {
-		return err
-	}
-	if err := userModule.RegisterEventHandler("UserUpdated", updatedHandler); err != nil {
-		return err
-	}
-
-	// Register module with application
-	return app.RegisterModule(userModule)
-}
-
 func main() {
-	fmt.Println("🚀 Testing Go Generic Event-Driven Boilerplate")
+	fmt.Println("🚀 Testing Go Generic Event-Driven Boilerplate with Simple DI")
 
-	// Create logger
-	log := logger.NewStandardLoggerWithPrefix("BOILERPLATE")
+	// Create DI container
+	container := di.NewContainer()
+
+	// Register services
+	container.Register("logger", logger.NewStandardLoggerWithPrefix("BOILERPLATE"))
+	container.Register("eventStore", db.NewInMemoryEventStore())
+	container.Register("commandBus", cqrs.NewInMemoryCommandBus())
+	container.Register("queryBus", cqrs.NewInMemoryQueryBus())
+	container.Register("eventBus", cqrs.NewInMemoryEventBus())
+
+	// Get services from container
+	log := container.MustGet("logger").(logger.Logger)
+	eventStore := container.MustGet("eventStore").(db.EventStore)
+	commandBus := container.MustGet("commandBus").(cqrs.CommandBus)
+	queryBus := container.MustGet("queryBus").(cqrs.QueryBus)
+	eventBus := container.MustGet("eventBus").(cqrs.EventBus)
+
+	// Create CQRS
+	cqrsSystem := cqrs.NewCQRS(commandBus, queryBus, eventBus)
 
 	// Create application
-	app := module.NewApplication(log)
+	app := NewApplication(log, cqrsSystem, eventStore)
 
 	// Create user storage
 	users := make(map[string]*User)
 
-	// Register user module
-	if err := RegisterUserModule(app, users); err != nil {
-		log.Fatal("Failed to register user module", logger.NewField("error", err.Error()))
-	}
+	// Register handlers
+	createHandler := NewCreateUserHandler(users)
+	updateHandler := NewUpdateUserHandler(users)
+	getHandler := NewGetUserHandler(users)
+	createdHandler := NewUserCreatedEventHandler()
+	updatedHandler := NewUserUpdatedEventHandler()
 
-	// Start application
-	ctx := context.Background()
-	if err := app.Start(ctx); err != nil {
-		log.Fatal("Failed to start application", logger.NewField("error", err.Error()))
-	}
-	defer app.Stop()
+	// Register with CQRS
+	app.CQRS.RegisterCommandHandler("CreateUser", createHandler)
+	app.CQRS.RegisterCommandHandler("UpdateUser", updateHandler)
+	app.CQRS.RegisterQueryHandler("GetUser", getHandler)
+	app.CQRS.EventBus.Subscribe("UserCreated", createdHandler)
+	app.CQRS.EventBus.Subscribe("UserUpdated", updatedHandler)
 
-	fmt.Println("✅ Application started successfully!")
+	fmt.Println("✅ Application started successfully with Simple DI!")
 
 	// Test command: Create user
 	createCmd := cqrs.NewCommand("CreateUser", "user-1", map[string]interface{}{
@@ -238,9 +237,9 @@ func main() {
 		"email": "john.doe@example.com",
 	})
 
-	result, err := app.CQRS.ExecuteCommand(ctx, createCmd)
+	result, err := app.CQRS.ExecuteCommand(context.Background(), createCmd)
 	if err != nil {
-		log.Fatal("Failed to execute create command", logger.NewField("error", err.Error()))
+		app.Logger.Fatal("Failed to execute create command", logger.NewField("error", err.Error()))
 	}
 
 	fmt.Printf("✅ Create command executed. Events: %d, AggregateID: %s\n",
@@ -251,9 +250,9 @@ func main() {
 		"user_id": result.AggregateID,
 	})
 
-	queryResult, err := app.CQRS.ExecuteQuery(ctx, getUserQuery)
+	queryResult, err := app.CQRS.ExecuteQuery(context.Background(), getUserQuery)
 	if err != nil {
-		log.Fatal("Failed to execute get query", logger.NewField("error", err.Error()))
+		app.Logger.Fatal("Failed to execute get query", logger.NewField("error", err.Error()))
 	}
 
 	user := queryResult.(*User)
@@ -266,28 +265,29 @@ func main() {
 		"name":    "John Smith",
 	})
 
-	_, err = app.CQRS.ExecuteCommand(ctx, updateCmd)
+	_, err = app.CQRS.ExecuteCommand(context.Background(), updateCmd)
 	if err != nil {
-		log.Fatal("Failed to execute update command", logger.NewField("error", err.Error()))
+		app.Logger.Fatal("Failed to execute update command", logger.NewField("error", err.Error()))
 	}
 
 	// Query again to see the update
-	queryResult, err = app.CQRS.ExecuteQuery(ctx, getUserQuery)
+	queryResult, err = app.CQRS.ExecuteQuery(context.Background(), getUserQuery)
 	if err != nil {
-		log.Fatal("Failed to execute get query after update", logger.NewField("error", err.Error()))
+		app.Logger.Fatal("Failed to execute get query after update", logger.NewField("error", err.Error()))
 	}
 
 	updatedUser := queryResult.(*User)
 	fmt.Printf("🔄 Updated user: User {ID: %s, Name: %s, Email: %s}\n",
 		updatedUser.ID, updatedUser.Name, updatedUser.Email)
 
-	fmt.Println("✨ Generic boilerplate test completed successfully!")
-	fmt.Println("\n📋 Boilerplate features validated:")
+	fmt.Println("✨ Generic boilerplate test with Simple DI completed successfully!")
+	fmt.Println("\n📋 Boilerplate features validated with Simple DI:")
+	fmt.Println("  ✅ Simple dependency injection")
 	fmt.Println("  ✅ Generic CQRS pattern")
 	fmt.Println("  ✅ Generic DDD interfaces")
-	fmt.Println("  ✅ Generic module system")
 	fmt.Println("  ✅ Generic event handling")
 	fmt.Println("  ✅ Generic types and payloads")
 	fmt.Println("  ✅ Generic logging")
 	fmt.Println("  ✅ Reusable without business logic")
+	fmt.Println("  ✅ No complex code generation")
 }

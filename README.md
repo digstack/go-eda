@@ -1,216 +1,112 @@
 # Go Generic Event-Driven Boilerplate
 
-A reusable, generic Go boilerplate for event-driven applications using CQRS, Domain-Driven Design (DDD), and event sourcing patterns.
+Modern Go boilerplate for **event-driven**, **event-sourced**, **CQRS**-based applications. No business logic — only patterns, primitives and infrastructure you can compose.
 
-## 🎯 Purpose
+## Why this exists
 
-This boilerplate provides **generic interfaces and base implementations** without any business logic, making it reusable across different domains and applications.
+The same building blocks (typed event store, OCC, idempotent publish, typed CQRS, projections, observability) keep getting reinvented per service. This repo factors them out into reusable packages with a small surface, generics, and tests.
 
-## 📦 Architecture
+## Layout
 
 ```
 pkg/
-├── ddd/          # Generic DDD interfaces and base implementations
-├── cqrs/         # Generic CQRS pattern implementation
-├── db/           # Generic database interfaces (NATS, in-memory)
-├── logger/       # Generic logging interfaces
-├── module/       # Generic module system
-└── types/        # Generic types and payloads
+├── ddd/        # generic Aggregate[ID], EventEnvelope[ID], Clock, payload contract
+├── db/         # event stores: JetStreamStore[ID] (NATS v2), InMemoryStore[ID]; SnapshotStore
+├── cqrs/       # typed CommandHandler[C,R] / QueryHandler[Q,R], middleware chain, TypedEventBus
+├── di/         # type-safe Registry: Provide[T] / Resolve[T], scopes, lifecycle hooks
+├── obs/        # slog logger, Meter/Tracer interfaces, cqrs middlewares (logging/metrics/tracing)
+├── logger/     # Logger interface + slog adapter
+├── module/     # legacy module registry (string-keyed, kept for compatibility)
+└── types/      # legacy generic payload structs (kept for compatibility)
+examples/
+└── banking/    # runnable example exercising every modern layer
 ```
 
-## 🚀 Features Validated ✅
+The `pkg/cqrs`, `pkg/ddd` and `pkg/di` packages contain both a **legacy** API (string-keyed, `interface{}`) and a **typed** API (generics). The typed API is the recommended one; the legacy one is preserved while consumers migrate.
 
-- ✅ **Generic CQRS pattern** - Command/Query separation with in-memory buses
-- ✅ **Generic DDD interfaces** - Aggregates, Events, Repositories without business logic
-- ✅ **Generic module system** - Register and organize your domain modules
-- ✅ **Generic event handling** - Event-driven architecture with handlers
-- ✅ **Generic types and payloads** - Reusable entities, commands, queries
-- ✅ **Generic logging** - Pluggable logging system
-- ✅ **Reusable without business logic** - Clean separation from domain specifics
-
-## 📋 Quick Start
-
-### Installation
+## Quick start
 
 ```bash
-go mod init your-project
-go get github.com/yourusername/go-generic-event-driven
+go run ./examples/banking
 ```
 
-### Basic Usage
+Expected output ends with: `account=<uuid> balance=350 (expected 350)`.
+
+## Building blocks
+
+### Event envelopes (pkg/ddd)
+
+Every event flows through `EventEnvelope[ID]` — a stable, JSON-serializable shape with:
+
+- `EventID` (idempotency key) and `EventType` (stable kind string)
+- aggregate identity (`AggregateID`, `AggregateType`, `AggregateVersion`)
+- correlation/causation/tenant IDs
+- a typed `Payload` implementing `ddd.EventPayload` (i.e. `EventKind() string`)
+
+Aggregates embed `BaseAggregateRoot[ID]` and use `ddd.Raise(...)` to emit events; replay goes through `ddd.LoadFromHistory(...)`.
+
+### Event store (pkg/db)
+
+Two implementations behind one mental model:
+
+| Store | Use case | Notes |
+|---|---|---|
+| `InMemoryStore[ID]` | tests, local dev | OCC enforced, contiguous versions, optional `Subscribe` |
+| `JetStreamStore[ID]` | production | NATS JetStream v2 API, OCC via `ExpectLastSequencePerSubject`, idempotent publish via `Nats-Msg-Id`, ordered consumer replay |
+
+Snapshots are first-class: `SnapshotStore[ID]` with an in-memory impl and a KV (NATS JetStream) impl.
+
+### CQRS (pkg/cqrs)
+
+Typed handlers, dispatched by Go type — no string lookup at call sites:
 
 ```go
-package main
-
-import (
-    "context"
-    "github.com/yourusername/go-generic-event-driven/pkg/cqrs"
-    "github.com/yourusername/go-generic-event-driven/pkg/module"
-    "github.com/yourusername/go-generic-event-driven/pkg/logger"
-)
-
-// Define your domain types
-type User struct {
-    types.Entity
-    Name  string `json:"name"`
-    Email string `json:"email"`
-}
-
-// Create your handlers
-type CreateUserHandler struct {
-    users map[string]*User
-}
-
-func (h *CreateUserHandler) Handle(ctx context.Context, cmd *cqrs.Command) (*cqrs.CommandResult, error) {
-    // Your business logic here
-    return &cqrs.CommandResult{
-        Events: []ddd.Event{event},
-        AggregateID: userID,
-        Version: 1,
-    }, nil
-}
-
-// Setup your application
-func main() {
-    app := module.NewApplication(logger.NewStandardLogger())
-    
-    // Create and register your module
-    userModule := module.NewModule("user")
-    userModule.RegisterCommandHandler("CreateUser", &CreateUserHandler{users})
-    
-    app.RegisterModule(userModule)
-    app.Start(context.Background())
-    defer app.Stop()
-    
-    // Use CQRS
-    cmd := cqrs.NewCommand("CreateUser", "user-1", map[string]interface{}{
-        "name": "John Doe",
-        "email": "john@example.com",
-    })
-    
-    result, _ := app.CQRS.ExecuteCommand(context.Background(), cmd)
-    fmt.Println("User created:", result.AggregateID)
-}
+cqrs.RegisterCommandHandler[OpenAccountCmd, OpenAccountRes](router, openHandler)
+res, err := cqrs.Execute[OpenAccountCmd, OpenAccountRes](ctx, router, OpenAccountCmd{Owner: "Alice"})
 ```
 
-## 🧪 Test the Boilerplate
+Middlewares compose with `cqrs.Chain(...)`. Bundled: `RecoveryMiddleware`, `TimeoutMiddleware`, `RetryMiddleware`. From `pkg/obs`: `LoggingMiddleware`, `MetricsMiddleware`, `TracingMiddleware`.
+
+Typed errors: `ErrNotFound`, `ErrConcurrencyConflict`, `ErrValidation`, `ErrTimeout`, `ErrHandlerPanic`, `ErrNoHandler`.
+
+### Typed DI (pkg/di)
+
+```go
+r := di.New()
+di.Provide(r, func(_ *di.Resolver) (logger.Logger, error) { return logger.NewJSONSlogLogger(slog.LevelInfo), nil })
+di.Provide(r, func(rv *di.Resolver) (*UserService, error) {
+    log := di.MustFrom[logger.Logger](rv)
+    return &UserService{log: log}, nil
+})
+svc := di.MustResolve[*UserService](r)
+```
+
+Features:
+
+- generics — no casts, no string keys
+- lifetimes: `Singleton`, `Transient`, `Scoped` (per-request / per-tenant via `Registry.NewScope()`)
+- qualifiers: `ProvideTagged` / `ResolveTagged` for multiple impls of the same interface
+- cycle detection at resolve time
+- lifecycle hooks: services implementing `di.Lifecycle` get `OnStart`/`OnStop` ordered by build order (leaves → roots; stop reversed)
+
+### Observability (pkg/obs)
+
+- `Meter` / `Tracer` interfaces with `Nop*` defaults — plug Prometheus or OpenTelemetry adapters when ready
+- ready-made middlewares for the typed CQRS dispatch path
+- `logger.SlogLogger` bridges `*slog.Logger` to the boilerplate `Logger` interface
+
+## Tests
 
 ```bash
-git clone https://github.com/yourusername/go-generic-event-driven
-cd go-generic-event-driven
-go run examples/user_example.go
+go test -race ./...
 ```
 
-## 🔄 Architecture Principles
+The JetStream-backed store has its own integration test that requires a local NATS instance (skipped by default; see `pkg/db`).
 
-### Generic by Design
-- **NO business logic** - Only patterns and infrastructure
-- **NO domain-specific types** - Use your own User, Product, Order, etc.
-- **NO business constraints** - Flexible architecture for any domain
+## Status
 
-### Extensible by Default
-- **Pluggable persistence** - NATS, in-memory, or your own implementation
-- **Custom handlers** - Implement CommandHandler, QueryHandler, EventHandler interfaces
-- **Modular organization** - Separate your domain into logical modules
+See `REVIEW_NOTES.md` for the historical audit and what is now resolved.
 
-### Production Ready
-- **Event sourcing support** - Full event store implementation
-- **Type safety** - Generic interfaces with compile-time checking
-- **Logging** - Built-in structured logging
-- **Testing friendly** - In-memory implementations for unit tests
+## License
 
-## 📁 Project Structure When Using Boilerplate
-
-```
-your-project/
-├── go.mod
-├── main.go
-├── cmd/
-│   └── app/
-│       └── main.go
-├── internal/
-│   ├── modules/
-│   │   ├── user/
-│   │   │   ├── user.go          # Domain entity
-│   │   │   ├── handlers.go      # CQRS handlers
-│   │   │   └── events.go        # Domain events
-│   │   └── product/
-│   │       ├── product.go
-│   │       ├── handlers.go
-│   │       └── events.go
-│   └── application/
-│       └── app.go              # Application setup
-└── pkg/
-    └── shared/                 # Your shared types
-```
-
-## 🎯 What Makes It Generic
-
-| Feature | Generic Boilerplate | Domain-Specific |
-|---------|-------------------|------------------|
-| Reusability | ✅ High - works for any domain | ❌ Low - tied to specific business |
-| Business Logic | ❌ None - pure patterns | ✅ Included - domain rules |
-| Extension | ✅ Easy - implement interfaces | ⚠️ Limited - coupled to domain |
-| Testing | ✅ Simple - in-memory impl | ⚠️ Complex - domain dependencies |
-
-## 🛠️ Core Interfaces You'll Use
-
-### CQRS Handlers
-```go
-type CommandHandler interface {
-    Handle(ctx context.Context, cmd *Command) (*CommandResult, error)
-}
-
-type QueryHandler interface {
-    Handle(ctx context.Context, query *Query) (interface{}, error)
-}
-
-type EventHandler interface {
-    Handle(ctx context.Context, event Event) error
-}
-```
-
-### DDD Building Blocks
-```go
-type Event interface {
-    GetID() string
-    GetType() string
-    GetTimestamp() time.Time
-    GetData() interface{}
-}
-
-type Aggregate interface {
-    GetID() string
-    GetVersion() int
-    GetUncommittedEvents() []Event
-    MarkEventsAsCommitted()
-}
-```
-
-## 📚 Patterns Implemented
-
-1. **Command Query Responsibility Segregation (CQRS)**
-2. **Event Sourcing**
-3. **Domain-Driven Design (DDD)**
-4. **Module Architecture**
-5. **Event-Driven Architecture**
-
-## 🚀 Next Steps
-
-1. **Fork and customize** for your specific needs
-2. **Add your domain modules** using the generic interfaces
-3. **Choose your persistence** (NATS for production, in-memory for development)
-4. **Build your application** on top of the solid foundation
-
-## 📝 Dependencies
-
-- `github.com/nats-io/nats.go` - NATS messaging (optional)
-- `github.com/google/uuid` - UUID generation
-
-## 🤝 Contributing
-
-This is a **generic boilerplate** - contributions should maintain the generic nature. Add infrastructure, not business logic.
-
----
-
-**Built for developers who want solid patterns without business constraints.** 🎯
+See LICENSE.

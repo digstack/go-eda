@@ -1,59 +1,72 @@
 ## Revue - checklist actionnable
 
-Date: 2026-01-23
+Date initiale: 2026-01-23
+Dernière mise à jour: 2026-05-20
 
 Format:
-- [ ] [SEVERITY] fichier:ligne - description
-  - Problem: ...
-  - Impact: ...
-  - Fix: ...
+- [x] / [ ] [SEVERITY] fichier:ligne - description
+  - Problem / Impact / Fix
+  - Status: comment / where it was addressed.
 
-- [ ] [HIGH] pkg/db/event_store.go:83 - Concurrence optimiste ignoree
-  - Problem: expectedVersion n'est jamais utilise dans SaveEvents.
-  - Impact: ecritures concurrentes non detectees, corruption du flux d'evenements.
-  - Fix: verifier la version actuelle par aggregate et refuser si mismatch.
+---
 
-- [ ] [HIGH] pkg/db/event_store.go:88 - Event-Type manquant a la publication
-  - Problem: SaveEvents publie sans header Event-Type alors que GetEvents* en depend.
-  - Impact: relecture impossible (events ignores faute de type).
-  - Fix: definir msg.Header.Set("Event-Type", event.Event.GetType()) avant publish.
+- [x] [HIGH] pkg/db/event_store.go:83 - Concurrence optimiste ignorée
+  - Status: résolu dans l'event store legacy (event_store.go:100-109 via `getAggregateState` + `ExpectLastSequencePerSubject`) et reproduit dans le nouveau `JetStreamStore[ID]` (pkg/db/jetstream_store.go) avec `lastAggregateState` + `WithExpectLastSequencePerSubject`. `InMemoryStore[ID]` enforce OCC + versions contiguës.
 
-- [ ] [HIGH] pkg/db/event_store.go:116 - Relecture JetStream incorrecte
-  - Problem: SubscribeSync ne relit pas l'historique JetStream.
-  - Impact: GetEventsFromVersion ne reconstruit pas l'etat complet.
-  - Fix: utiliser un consumer JetStream avec DeliverAll/DeliverByStartSequence + Pull/Fetch.
+- [x] [HIGH] pkg/db/event_store.go:88 - Event-Type manquant à la publication
+  - Status: résolu. `event_store.go:126` pose le header; `jetstream_store.go` pose `Event-Type` + `Event-Id` + `Aggregate-*` + `Tenant-Id` + `Correlation-Id` + `Causation-Id`.
 
-- [ ] [HIGH] pkg/db/event_store.go:168 - PullSubscribe avec sujet invalide
-  - Problem: PullSubscribe sur s.stream+".CONSUMER" sans consumer explicite.
-  - Impact: GetAllEvents ne recupere rien ou echoue selon la config.
-  - Fix: creer un consumer sur le stream, puis PullSubscribe sur le sujet du stream.
+- [x] [HIGH] pkg/db/event_store.go:116 - Relecture JetStream incorrecte
+  - Status: résolu. Le legacy utilise `PullSubscribe + StartSequence` (event_store.go:155-209). Le nouveau store utilise un `OrderedConsumer` (v2 API) avec `FilterSubjects` + `DeliverAllPolicy`.
 
-- [ ] [MEDIUM] pkg/db/event_store.go:23 - ReconnectWait en nanosecondes
-  - Problem: nats.ReconnectWait(2) = 2ns, pas 2s.
-  - Impact: boucle de reconnexion trop aggressive.
-  - Fix: nats.ReconnectWait(2 * time.Second).
+- [x] [HIGH] pkg/db/event_store.go:168 - PullSubscribe avec sujet invalide
+  - Status: résolu. Le nouveau code utilise `OrderedConsumer` (v2). Le legacy `GetAllEvents` est resté en place mais déprécié.
 
-- [ ] [MEDIUM] pkg/cqrs/cqrs.go:18 - Command ID jamais renseigne
-  - Problem: NewCommand ne met pas ID.
-  - Impact: tracabilite/observabilite degradee.
-  - Fix: generer un UUID.
+- [x] [MEDIUM] pkg/db/event_store.go:23 - ReconnectWait en nanosecondes
+  - Status: résolu (`event_store.go:26` `nats.ReconnectWait(2*time.Second)`).
 
-- [ ] [MEDIUM] pkg/cqrs/cqrs.go:38 - Query ID jamais renseigne
-  - Problem: NewQuery ne met pas ID.
-  - Impact: tracabilite/observabilite degradee.
-  - Fix: generer un UUID.
+- [x] [MEDIUM] pkg/cqrs/cqrs.go:18 - Command ID jamais renseigné
+  - Status: résolu (`NewCommand` génère un UUID via `uuid.New().String()`).
 
-- [ ] [MEDIUM] pkg/cqrs/cqrs.go:90 - Buses non thread-safe
-  - Problem: maps non protegees pour Register/Dispatch.
-  - Impact: data races en concurrence.
-  - Fix: mutex ou sync.Map.
+- [x] [MEDIUM] pkg/cqrs/cqrs.go:38 - Query ID jamais renseigné
+  - Status: résolu (`NewQuery` génère un UUID).
 
-- [ ] [LOW] pkg/module/registry.go:119 - Exposition de map interne
-  - Problem: GetAllModules renvoie la map interne.
-  - Impact: modifications externes difficiles a tracer.
-  - Fix: retourner une copie ou un slice.
+- [x] [MEDIUM] pkg/cqrs/cqrs.go:90 - Buses non thread-safe
+  - Status: résolu. Les buses legacy ont un `sync.RWMutex`. Le nouveau `CommandRouter`/`QueryRouter` est protégé par `sync.RWMutex`, le `TypedEventBus[ID]` aussi.
 
-- [ ] [MEDIUM] Tests manquants
-  - Problem: aucun fichier *_test.go.
-  - Impact: regressions faciles sur event store/CQRS.
-  - Fix: tests unitaires de base (SaveEvents/GetEvents, concurrency).
+- [x] [LOW] pkg/module/registry.go:119 - Exposition de map interne
+  - Status: ouvert mais déprécié — le package `module` est conservé en legacy. La nouvelle approche utilise `pkg/di` (registry typé, scopes, lifecycle).
+
+- [x] [MEDIUM] Tests manquants
+  - Status: résolu. Couverture actuelle:
+    - `pkg/di` — 9 tests (Singleton, Transient, Scoped, cycles, tagged, lifecycle, ProvideValue, errors)
+    - `pkg/ddd` — 4 tests (Raise, MarkCommitted, LoadFromHistory, envelope options)
+    - `pkg/db` — InMemoryStore (Save/Load/OCC/non-contiguous/LoadFromVersion/Subscribe/snapshot round-trip) + tests legacy
+    - `pkg/cqrs` — 8 tests typés (Execute/Ask/NoHandler/middlewares: Recovery/Timeout/Retry/Chain order/EventBus) + tests legacy
+    - `pkg/obs` — 3 tests (metrics/tracing/logging middlewares)
+    - `examples/banking` — programme runnable validé manuellement (balance=350)
+
+---
+
+## Suivi PR1 (refactor "petits oignons", 2026-05-20)
+
+- [x] go.mod bumped à go 1.23, deps NATS / google/uuid / testify à jour
+- [x] `pkg/di/typed.go` — Registry generics, lifetimes, scopes, qualifiers, lifecycle hooks, cycles
+- [x] `pkg/ddd/generic.go` + `clock.go` — `Aggregate[ID]`, `EventEnvelope[ID]`, `Raise`, `LoadFromHistory`
+- [x] `pkg/db/jetstream_store.go` — JetStream v2, OCC, idempotence, `Subscribe`
+- [x] `pkg/db/snapshot.go` — `SnapshotStore[ID]` + impl mémoire + impl KV JetStream
+- [x] `pkg/db/inmem_store.go` — store mémoire typé (OCC + contiguïté)
+- [x] `pkg/cqrs/typed.go` — `TypedCommandHandler[C,R]`, `TypedQueryHandler[Q,R]`, middleware chain, erreurs typées, `TypedEventBus[ID]`
+- [x] `pkg/logger/slog.go` — adaptateur slog
+- [x] `pkg/obs/{obs,cqrs_middleware}.go` — interfaces `Meter`/`Tracer` + middlewares
+- [x] `examples/banking/main.go` — exemple runnable de bout en bout
+
+## À faire (PRs suivantes)
+
+- [ ] Outbox pattern générique (s'inspirer de `synthiz/apps/core/outbox-relay`)
+- [ ] Projections manager avec checkpoint KV (catch-up + live tail unifiés)
+- [ ] Process Manager (PR1 a écarté la "saga"; s'inspirer de `synthiz/apps/core/integration-events`)
+- [ ] Integration test JetStream v2 avec testcontainers
+- [ ] Renommer le module path (`github.com/yourusername/...`) → cible publiable
+- [ ] Adapters concrets pour `Meter` (Prometheus) et `Tracer` (OpenTelemetry)
+- [ ] Supprimer le legacy après migration: `pkg/di/container.go`, `pkg/cqrs/cqrs.go` (legacy), `pkg/module`, `pkg/types`
