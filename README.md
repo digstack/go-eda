@@ -29,6 +29,14 @@ examples/
 
 Module path: `github.com/codesyl/go-eda`.
 
+`pkg/obs/prom` and `pkg/obs/otelobs` are **separate Go modules** so the core stays free of Prometheus / OpenTelemetry dependencies. Generate a `go.work` locally to develop across all three modules at once:
+
+```bash
+go work init . ./pkg/obs/prom ./pkg/obs/otelobs
+```
+
+The file is gitignored.
+
 ## Quick start
 
 ```bash

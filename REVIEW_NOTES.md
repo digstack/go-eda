@@ -91,9 +91,17 @@ Tests (PR2): outbox (4), projection (4), processmanager (5). `go test -race ./..
   - `pkg/logger/logger.go` (interface + helpers déplacés dans `slog.go`)
   - `examples/simple_di_example.go`
 
+## Suivi PR5 (sous-modules obs, 2026-05-20)
+
+- [x] `pkg/obs/prom/go.mod` et `pkg/obs/otelobs/go.mod` — modules Go séparés avec leurs propres `replace ../../..` pour le développement local
+- [x] Core `go.mod` purgé de Prometheus + OpenTelemetry (deps directes ET indirectes)
+- [x] README documente la création locale d'un `go.work` (le fichier est gitignoré)
+
+Core deps directes restantes: `google/uuid`, `nats-io/nats.go`, `stretchr/testify`. Plus aucune dep optionnelle.
+
 ## À faire (PRs suivantes)
 
 - [ ] SQL implementation de `outbox.Store` (Postgres/MySQL avec `SELECT ... FOR UPDATE SKIP LOCKED`)
-- [ ] Sous-modules Go séparés pour `pkg/obs/{prom,otelobs}` afin que le core reste sans deps optionnelles
-- [ ] CI sklp (`.sklp/tasks/ci.yaml`) — `go test -race ./...` + `go vet`
+- [ ] CI sklp (`.sklp/tasks/ci.yaml`) — `go test -race ./...` + `go vet` sur les 3 modules
 - [ ] Exemple multi-tenant utilisant les Scopes du DI
+- [ ] Déflaker l'exemple orders (race entre outbox dispatch et PM workers)
