@@ -69,12 +69,16 @@ Format:
 
 Tests (PR2): outbox (4), projection (4), processmanager (5). `go test -race ./...` reste vert sur l'ensemble.
 
+## Suivi PR3 (KV adapters + exemple end-to-end, 2026-05-20)
+
+- [x] `examples/orders/main.go` — exemple end-to-end: aggregate Order + InMemoryStore + outbox Relay + TypedEventBus + projection Manager (inventory) + processmanager Engine (shipping). Tourne avec `go run ./examples/orders` et produit `shipped=3 / inventory OK / outbox dispatched=6`.
+- [x] `pkg/projection/kv_checkpoint.go` — `KVCheckpointStore[ID]` basé sur `jetstream.KeyValue` (JSON encoding, History=1)
+- [x] `pkg/processmanager/kv_state.go` — `KVStateStore[S]` basé sur `jetstream.KeyValue` avec OCC via revision (`Create` / `Update` avec last-revision)
+
 ## À faire (PRs suivantes)
 
-- [ ] Integration test JetStream v2 avec testcontainers
+- [ ] Integration test JetStream v2 avec testcontainers (couvrira aussi `KVCheckpointStore` et `KVStateStore`)
 - [ ] Renommer le module path (`github.com/yourusername/...`) → cible publiable
 - [ ] Adapters concrets pour `Meter` (Prometheus) et `Tracer` (OpenTelemetry)
 - [ ] SQL implementation de `outbox.Store` (Postgres/MySQL avec `SELECT ... FOR UPDATE SKIP LOCKED`)
-- [ ] KV (NATS) implementation de `projection.CheckpointStore` et `processmanager.StateStore`
-- [ ] Exemple runnable utilisant outbox + projection + process manager bout en bout
 - [ ] Supprimer le legacy après migration: `pkg/di/container.go`, `pkg/cqrs/cqrs.go` (legacy), `pkg/module`, `pkg/types`

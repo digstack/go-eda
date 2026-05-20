@@ -30,10 +30,14 @@ The `pkg/cqrs`, `pkg/ddd` and `pkg/di` packages contain both a **legacy** API (s
 ## Quick start
 
 ```bash
+# Minimal: DI + DDD + EventStore + CQRS + obs
 go run ./examples/banking
-```
+# → account=<uuid> balance=350 (expected 350)
 
-Expected output ends with: `account=<uuid> balance=350 (expected 350)`.
+# End-to-end: aggregate + outbox + projection + process manager
+go run ./examples/orders
+# → shipped=3, inventory SKU-A=3 SKU-B=5, outbox dispatched=6
+```
 
 ## Building blocks
 
