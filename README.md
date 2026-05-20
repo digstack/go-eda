@@ -15,6 +15,9 @@ pkg/
 ├── cqrs/       # typed CommandHandler[C,R] / QueryHandler[Q,R], middleware chain, TypedEventBus
 ├── di/         # type-safe Registry: Provide[T] / Resolve[T], scopes, lifecycle hooks
 ├── obs/        # slog logger, Meter/Tracer interfaces, cqrs middlewares (logging/metrics/tracing)
+├── outbox/     # transactional outbox pattern: Store interface + Relay + in-mem impl
+├── projection/ # event-store projections: Projector + Manager (catch-up + live + checkpoint)
+├── processmanager/ # event-driven process manager (state machine + OCC + idempotency)
 ├── logger/     # Logger interface + slog adapter
 ├── module/     # legacy module registry (string-keyed, kept for compatibility)
 └── types/      # legacy generic payload structs (kept for compatibility)
@@ -88,6 +91,18 @@ Features:
 - qualifiers: `ProvideTagged` / `ResolveTagged` for multiple impls of the same interface
 - cycle detection at resolve time
 - lifecycle hooks: services implementing `di.Lifecycle` get `OnStart`/`OnStop` ordered by build order (leaves → roots; stop reversed)
+
+### Outbox (pkg/outbox)
+
+Transactional outbox: enqueue an envelope inside your application transaction, then a `Relay` worker drains pending records and publishes them through a `Publisher`. The `Store` interface is storage-agnostic — implement it on top of SQL `SELECT ... FOR UPDATE SKIP LOCKED`, MongoDB, or anything else. An in-memory `Store` is shipped for tests.
+
+### Projections (pkg/projection)
+
+A `Manager[ID]` drives a `Projector` through two phases under one API: **catch-up** (replay history from the last checkpoint) then **live tail** (subscribe to new events). `CheckpointStore` persists `Checkpoint[ID]` (last-seen version per aggregate); in-memory implementation provided.
+
+### Process manager (pkg/processmanager)
+
+A generic, idempotent state machine: declare a `Definition[ID,S]` with an `InstanceID` derivation function, an `Initial` state, and a routing table of `Handlers` per event kind. The `Engine` loads/initializes the instance, runs the handler, persists with optimistic concurrency, and executes the returned `Effects`. Replay-safe by `LastEventID`.
 
 ### Observability (pkg/obs)
 

@@ -61,12 +61,20 @@ Format:
 - [x] `pkg/obs/{obs,cqrs_middleware}.go` — interfaces `Meter`/`Tracer` + middlewares
 - [x] `examples/banking/main.go` — exemple runnable de bout en bout
 
+## Suivi PR2 (outbox / projections / process manager, 2026-05-20)
+
+- [x] `pkg/outbox/outbox.go` — Store interface (storage-agnostic), Relay (RunOnce + Run), retries with terminal status, in-memory Store
+- [x] `pkg/projection/projection.go` — Projector, CheckpointStore (in-mem), Manager (CatchUp + RunLive), idempotency by per-aggregate version
+- [x] `pkg/processmanager/processmanager.go` — Definition, Engine, Stored[S] with OCC, idempotency by LastEventID, Effects executed after persistence, in-memory StateStore
+
+Tests (PR2): outbox (4), projection (4), processmanager (5). `go test -race ./...` reste vert sur l'ensemble.
+
 ## À faire (PRs suivantes)
 
-- [ ] Outbox pattern générique (s'inspirer de `synthiz/apps/core/outbox-relay`)
-- [ ] Projections manager avec checkpoint KV (catch-up + live tail unifiés)
-- [ ] Process Manager (PR1 a écarté la "saga"; s'inspirer de `synthiz/apps/core/integration-events`)
 - [ ] Integration test JetStream v2 avec testcontainers
 - [ ] Renommer le module path (`github.com/yourusername/...`) → cible publiable
 - [ ] Adapters concrets pour `Meter` (Prometheus) et `Tracer` (OpenTelemetry)
+- [ ] SQL implementation de `outbox.Store` (Postgres/MySQL avec `SELECT ... FOR UPDATE SKIP LOCKED`)
+- [ ] KV (NATS) implementation de `projection.CheckpointStore` et `processmanager.StateStore`
+- [ ] Exemple runnable utilisant outbox + projection + process manager bout en bout
 - [ ] Supprimer le legacy après migration: `pkg/di/container.go`, `pkg/cqrs/cqrs.go` (legacy), `pkg/module`, `pkg/types`
