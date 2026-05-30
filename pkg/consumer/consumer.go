@@ -111,9 +111,14 @@ type Config struct {
 	BackOff []time.Duration
 	// MaxAckPending caps unacked in-flight messages. Default: 1000.
 	MaxAckPending int
-	// HeartbeatInterval is how often InProgress() is sent for concurrent
-	// handlers to defer AckWait during long processing. Default: 10s.
+	// HeartbeatInterval is how often InProgress() is sent (for concurrent
+	// handlers, or any handler when HeartbeatAlways is set) to defer AckWait
+	// during long processing. Default: 10s.
 	HeartbeatInterval time.Duration
+	// HeartbeatAlways arms the ack heartbeat even for sequential (concurrency
+	// 1) handlers. Set it for long single-threaded workers whose processing
+	// can exceed AckWait. Default: false (heartbeat only when concurrency > 1).
+	HeartbeatAlways bool
 	// RetryBackoff is the wait before re-establishing a dropped consumer in
 	// Run. Default: 2s.
 	RetryBackoff time.Duration
@@ -212,8 +217,13 @@ func Start(ctx context.Context, nc *nats.Conn, handler EventHandler, cfg Config)
 			defer wg.Done()
 			defer func() { <-sem }()
 
+			// Heartbeat (InProgress) defers AckWait during long processing.
+			// Armed for concurrent handlers, and for any handler that opts in
+			// with HeartbeatAlways — long single-threaded workers (e.g. a
+			// transcoder) need it too, otherwise AckWait fires mid-job and the
+			// message is redelivered while still being processed.
 			var stopHeartbeat func()
-			if concurrency > 1 {
+			if concurrency > 1 || cfg.HeartbeatAlways {
 				stopHeartbeat = startAckHeartbeat(msg, cfg.HeartbeatInterval)
 			}
 			err := process(ctx, msg, handler, cfg)
