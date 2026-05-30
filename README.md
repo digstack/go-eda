@@ -27,7 +27,7 @@ examples/
 └── orders/             # everything above + outbox + projection + process manager
 ```
 
-Module path: `github.com/codesyl/go-eda`.
+Module path: `github.com/digstack/go-eda`.
 
 `pkg/obs/prom` and `pkg/obs/otelobs` are **separate Go modules** so the core stays free of Prometheus / OpenTelemetry dependencies. Generate a `go.work` locally to develop across all three modules at once:
 

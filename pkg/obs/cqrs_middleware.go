@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/codesyl/go-eda/pkg/cqrs"
-	"github.com/codesyl/go-eda/pkg/logger"
+	"github.com/digstack/go-eda/pkg/cqrs"
+	"github.com/digstack/go-eda/pkg/logger"
 )
 
 // LoggingMiddleware logs every handler call: start, end, latency, error.

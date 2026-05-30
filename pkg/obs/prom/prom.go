@@ -13,7 +13,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/codesyl/go-eda/pkg/obs"
+	"github.com/digstack/go-eda/pkg/obs"
 )
 
 // Meter implements obs.Meter on top of a Prometheus registry. Counters

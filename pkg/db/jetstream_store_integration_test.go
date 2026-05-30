@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/codesyl/go-eda/pkg/ddd"
+	"github.com/digstack/go-eda/pkg/ddd"
 )
 
 type itCreated struct {

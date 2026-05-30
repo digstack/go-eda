@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/codesyl/go-eda/pkg/ddd"
+	"github.com/digstack/go-eda/pkg/ddd"
 )
 
 // InMemoryStore is a goroutine-safe, typed event store useful for tests

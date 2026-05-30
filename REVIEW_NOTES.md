@@ -78,7 +78,7 @@ Tests (PR2): outbox (4), projection (4), processmanager (5). `go test -race ./..
 ## Suivi PR4 (integration tests + rename + adapters + legacy cleanup, 2026-05-20)
 
 - [x] Integration tests `//go:build integration` couvrant `JetStreamStore`, `KVCheckpointStore`, `KVStateStore`. Auto-skip si NATS pas accessible. README documente la commande Docker.
-- [x] Module path renommé: `github.com/yourusername/go-generic-event-driven` → `github.com/codesyl/go-eda`
+- [x] Module path renommé: `github.com/yourusername/go-generic-event-driven` → `github.com/digstack/go-eda`
 - [x] `pkg/obs/prom` — adapter Prometheus pour `Meter` (counters + histograms)
 - [x] `pkg/obs/otelobs` — adapter OpenTelemetry pour `Tracer`
 - [x] Suppression du legacy:

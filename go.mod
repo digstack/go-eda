@@ -1,4 +1,4 @@
-module github.com/codesyl/go-eda
+module github.com/digstack/go-eda
 
 go 1.23
 

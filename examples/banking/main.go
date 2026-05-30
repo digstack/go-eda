@@ -15,12 +15,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/codesyl/go-eda/pkg/cqrs"
-	"github.com/codesyl/go-eda/pkg/db"
-	"github.com/codesyl/go-eda/pkg/ddd"
-	"github.com/codesyl/go-eda/pkg/di"
-	"github.com/codesyl/go-eda/pkg/logger"
-	"github.com/codesyl/go-eda/pkg/obs"
+	"github.com/digstack/go-eda/pkg/cqrs"
+	"github.com/digstack/go-eda/pkg/db"
+	"github.com/digstack/go-eda/pkg/ddd"
+	"github.com/digstack/go-eda/pkg/di"
+	"github.com/digstack/go-eda/pkg/logger"
+	"github.com/digstack/go-eda/pkg/obs"
 )
 
 // ----------------------------------------------------------------------------

@@ -21,14 +21,14 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/codesyl/go-eda/pkg/cqrs"
-	"github.com/codesyl/go-eda/pkg/db"
-	"github.com/codesyl/go-eda/pkg/ddd"
-	"github.com/codesyl/go-eda/pkg/di"
-	"github.com/codesyl/go-eda/pkg/logger"
-	"github.com/codesyl/go-eda/pkg/outbox"
-	"github.com/codesyl/go-eda/pkg/processmanager"
-	"github.com/codesyl/go-eda/pkg/projection"
+	"github.com/digstack/go-eda/pkg/cqrs"
+	"github.com/digstack/go-eda/pkg/db"
+	"github.com/digstack/go-eda/pkg/ddd"
+	"github.com/digstack/go-eda/pkg/di"
+	"github.com/digstack/go-eda/pkg/logger"
+	"github.com/digstack/go-eda/pkg/outbox"
+	"github.com/digstack/go-eda/pkg/processmanager"
+	"github.com/digstack/go-eda/pkg/projection"
 )
 
 // ----------------------------------------------------------------------------

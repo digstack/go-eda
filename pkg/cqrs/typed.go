@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codesyl/go-eda/pkg/ddd"
+	"github.com/digstack/go-eda/pkg/ddd"
 )
 
 // Typed domain errors. Wrap them with fmt.Errorf("%w: ...") to add context.

@@ -1,9 +1,9 @@
-module github.com/codesyl/go-eda/pkg/obs/otelobs
+module github.com/digstack/go-eda/pkg/obs/otelobs
 
 go 1.23.0
 
 require (
-	github.com/codesyl/go-eda v0.0.0
+	github.com/digstack/go-eda v0.0.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/sdk v1.43.0
@@ -23,4 +23,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/codesyl/go-eda => ../../..
+replace github.com/digstack/go-eda => ../../..
