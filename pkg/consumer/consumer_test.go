@@ -75,11 +75,11 @@ func TestConfigDefaults(t *testing.T) {
 // seqHandler is a minimal EventHandler with no concurrency opt-in.
 type seqHandler struct{}
 
-func (seqHandler) Name() string                                  { return "seq" }
-func (seqHandler) Subject() string                               { return "integration.>" }
-func (seqHandler) DurableName() string                           { return "seq-consumer" }
-func (seqHandler) MaxDeliver() int                               { return 3 }
-func (seqHandler) Handle(context.Context, *nats.Msg) error       { return nil }
+func (seqHandler) Name() string                            { return "seq" }
+func (seqHandler) Subject() string                         { return "integration.>" }
+func (seqHandler) DurableName() string                     { return "seq-consumer" }
+func (seqHandler) MaxDeliver() int                         { return 3 }
+func (seqHandler) Handle(context.Context, *nats.Msg) error { return nil }
 
 // concHandler additionally implements ConcurrentHandler.
 type concHandler struct{ seqHandler }
