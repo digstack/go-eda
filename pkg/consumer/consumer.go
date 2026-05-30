@@ -184,6 +184,15 @@ func Start(ctx context.Context, nc *nats.Conn, handler EventHandler, cfg Config)
 		return err
 	}
 
+	// JetStream rejects a consumer whose BackOff is at least as long as
+	// MaxDeliver (err 10116). Clamp defensively so a caller that sets a long
+	// BackOff or a small MaxDeliver never produces a consumer that fails to
+	// create and silently loops in the reconnect path.
+	backoff := cfg.BackOff
+	if md := handler.MaxDeliver(); md > 0 && len(backoff) >= md {
+		backoff = backoff[:md-1]
+	}
+
 	cons, err := js.CreateOrUpdateConsumer(ctx, cfg.StreamName, jetstream.ConsumerConfig{
 		Durable:       handler.DurableName(),
 		FilterSubject: handler.Subject(),
@@ -193,7 +202,7 @@ func Start(ctx context.Context, nc *nats.Conn, handler EventHandler, cfg Config)
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 		ReplayPolicy:  jetstream.ReplayInstantPolicy,
 		MaxAckPending: cfg.MaxAckPending,
-		BackOff:       cfg.BackOff,
+		BackOff:       backoff,
 	})
 	if err != nil {
 		return fmt.Errorf("create consumer %s: %w", handler.DurableName(), err)
